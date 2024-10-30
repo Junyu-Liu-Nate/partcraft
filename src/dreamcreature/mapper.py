@@ -56,6 +56,9 @@ class TokenMapper(nn.Module):
     def forward(self, hashes, index: Optional[torch.Tensor] = None):
         B = hashes.size(0)
 
+        print(f'hashes: {hashes}')
+        print(f'index: {index}')
+
         # 0, 257, 514, ...
         if index is None:
             offset = torch.arange(self.num_parts, device=hashes.device) * (self.num_k_per_part + 1)

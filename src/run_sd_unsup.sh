@@ -1,5 +1,5 @@
 python train_dreamcreature_sd.py \
-     --pretrained_model_name_or_path="runwayml/stable-diffusion-v1-5" \
+     --pretrained_model_name_or_path="/users/ljunyu/data/ljunyu/code/concept/pretrained_models/stable-diffusion-v1-5" \
      --train_data_dir=data/cub200_2011 \
      --resolution=512 --random_flip --train_batch_size=2 --gradient_accumulation_steps=4 \
      --num_train_epochs=100 --checkpointing_steps=749 --learning_rate=0.0001 \

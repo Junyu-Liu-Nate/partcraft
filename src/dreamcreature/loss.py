@@ -30,6 +30,7 @@ def dreamcreature_loss(batch,
 
     # locate the attn map
     for i, placeholder_token_id in enumerate(placeholder_token_ids):
+
         for bi in range(B):
             if "input_ids" in batch:
                 learnable_idx = (batch["input_ids"][bi] == placeholder_token_id).nonzero(as_tuple=True)[0]
@@ -54,7 +55,10 @@ def dreamcreature_loss(batch,
     dino_input = dino.preprocess(raw_images, size=224)
     with torch.no_grad():
         dino_ft = dino.get_feat_maps(dino_input)
+        print(f'dino_ft: {dino_ft.size()}')
         segmasks, appeared_tokens = seg.get_segmask(dino_ft, True)  # (B, M, H, W)
+        print(f'segmasks: {segmasks.size()}')
+        print(f'appeared_tokens: {appeared_tokens}')
         segmasks = segmasks.to(located_attn_map.dtype)
         if H != 16:  # for res 1024
             segmasks = F.interpolate(segmasks, (H, W), mode='nearest')

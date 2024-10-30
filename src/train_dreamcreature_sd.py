@@ -56,6 +56,9 @@ from dreamcreature.text_encoder import CustomCLIPTextModel
 from dreamcreature.tokenizer import MultiTokenCLIPTokenizer
 from utils import add_tokens, tokenize_prompt, get_attn_processors
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 imagenet_templates = [
     "a photo of a {}",
     "a rendering of a {}",
@@ -454,6 +457,8 @@ def collate_fn(args, tokenizer, placeholder_token):
         captions = []
         appeared_tokens = []
 
+        print(f'examples {examples}')
+
         for i in range(len(examples)):
             if args.use_templates and random.random() <= 0.5:  # 50% using templates
                 if args.class_name != '':
@@ -465,9 +470,11 @@ def collate_fn(args, tokenizer, placeholder_token):
                     caption = f'{placeholder_token} {args.class_name}'
                 else:
                     caption = placeholder_token
+            print(f'   examples {i} - caption {caption}')
 
             tokens = tokenizer.token_map[placeholder_token][:args.num_parts]
             tokens = [tokens[a] for a in examples[i]['appeared']]
+            print(f'   examples {i} - tokens {tokens}')
 
             if args.vector_shuffle or args.drop_tokens:
                 tokens = copy.copy(tokens)
@@ -479,17 +486,23 @@ def collate_fn(args, tokenizer, placeholder_token):
                     tokens = tokens[:len(tokens) // 2]
                 else:
                     tokens = tokens[:int(args.drop_counts)]
+            print(f'   examples {i} - tokens after dropping {tokens}')
 
             appeared = [int(t.split('_')[1]) for t in tokens]  # <part>_i
             appeared_tokens.append(appeared)
+            print(f'   examples {i} - appeared_tokens {appeared_tokens}')
 
             caption = caption.replace(placeholder_token, ' '.join(tokens))
             captions.append(caption)
+            print(f'   examples {i} - caption: {caption}\n')
 
         input_ids = tokenize_prompt(tokenizer, captions)
+        # print(f'input_ids {input_ids}')
         # input_ids = inputs.input_ids.repeat(len(examples), 1)  # (1, 77) -> (B, 77)
 
         codes = torch.stack([example["codes"] for example in examples])
+        print(f'codes {codes}\n')
+        # exit()
 
         return {"pixel_values": pixel_values,
                 "raw_images": raw_images,
@@ -611,6 +624,10 @@ def main():
                                        placeholder_token,
                                        args.num_parts,
                                        initializer_token)
+    print(f'placeholder_token_ids {placeholder_token_ids}')
+    ### Note: for bird/dog where m=8, there are only 8 new placeholder tokens with ids: [49408, 49409, 49410, 49411, 49412, 49413, 49414, 49415]
+    ###       Thus, the code is designed to add new tokens by the number of parts, not the number of part examples.
+    # exit()
 
     # freeze parameters of models to save more memory
     unet.requires_grad_(False)
@@ -749,7 +766,7 @@ def main():
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers("text2image-fine-tune", config=vars(args))
+        accelerator.init_trackers("dream-creature", config=vars(args))
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -809,6 +826,9 @@ def main():
                 continue
 
             with accelerator.accumulate(unet, simple_mapper):
+                # print(f'batch {batch}')
+                # exit()
+
                 # Convert images to latent space
                 latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
@@ -832,6 +852,7 @@ def main():
 
                 # Get the text embedding for conditioning
                 mapper_outputs = simple_mapper(batch['codes'])
+                
                 # print(mapper_outputs.size(), batch["input_ids"].size())
                 modified_hs = text_encoder.text_model.forward_embeddings_with_mapper(batch["input_ids"],
                                                                                      None,
@@ -891,6 +912,7 @@ def main():
                                                              seg,
                                                              placeholder_token_ids,
                                                              accelerator)
+                    exit()
                     if args.masked_training:
                         masks = batch['masks'].unsqueeze(1).to(accelerator.device)
                         loss_image_mask = F.interpolate(masks.float(),
@@ -1098,6 +1120,13 @@ def main():
     images = []
     for _ in range(args.num_validation_images):
         images.append(pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0])
+
+    ### Added: Save the images to the local folder
+    output_images_dir = os.path.join(args.output_dir, "generated_images")
+    os.makedirs(output_images_dir, exist_ok=True)
+    for i, image in enumerate(images):
+        image.save(os.path.join(output_images_dir, f"validation_image_{i}.png"))
+    logger.info(f"Saved validation images to {output_images_dir}")
 
     if accelerator.is_main_process:
         for tracker in accelerator.trackers:
